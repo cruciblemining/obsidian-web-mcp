@@ -54,12 +54,19 @@ mcp = FastMCP(
 # --- Register all tools ---
 
 from .tools.read import vault_read as _vault_read, vault_batch_read as _vault_batch_read
-from .tools.write import vault_write as _vault_write, vault_batch_frontmatter_update as _vault_batch_frontmatter_update
+from .tools.write import (
+    vault_write as _vault_write,
+    vault_patch as _vault_patch,
+    vault_append as _vault_append,
+    vault_batch_frontmatter_update as _vault_batch_frontmatter_update,
+)
 from .tools.search import vault_search as _vault_search, vault_search_frontmatter as _vault_search_frontmatter
 from .tools.manage import vault_list as _vault_list, vault_move as _vault_move, vault_delete as _vault_delete
 from .models import (
     VaultReadInput,
     VaultWriteInput,
+    VaultPatchInput,
+    VaultAppendInput,
     VaultBatchReadInput,
     VaultBatchFrontmatterUpdateInput,
     VaultSearchInput,
@@ -112,6 +119,28 @@ def vault_batch_frontmatter_update(updates: list[dict]) -> str:
     """Batch update frontmatter fields."""
     inp = VaultBatchFrontmatterUpdateInput(updates=updates)
     return _vault_batch_frontmatter_update(inp.updates)
+
+
+@mcp.tool(
+    name="vault_patch",
+    description="Replace a unique text occurrence in a vault file. The old_text must appear exactly once. Use this instead of vault_write when editing existing files — only sends the changed portion over the wire.",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def vault_patch(path: str, old_text: str, new_text: str) -> str:
+    """Find and replace a unique string in a file."""
+    inp = VaultPatchInput(path=path, old_text=old_text, new_text=new_text)
+    return _vault_patch(inp.path, inp.old_text, inp.new_text)
+
+
+@mcp.tool(
+    name="vault_append",
+    description="Append content to the end of a vault file. Useful for adding entries to logs, notes, or lists without reading the full file first.",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+)
+def vault_append(path: str, content: str, create_if_missing: bool = False) -> str:
+    """Append content to a file."""
+    inp = VaultAppendInput(path=path, content=content, create_if_missing=create_if_missing)
+    return _vault_append(inp.path, inp.content, inp.create_if_missing)
 
 
 @mcp.tool(
