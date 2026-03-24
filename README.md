@@ -54,6 +54,8 @@ This is a server that provides network access to your personal notes. Security i
 | `vault_read` | Read a file, returning content, metadata, and parsed YAML frontmatter |
 | `vault_batch_read` | Read multiple files in one call; handles missing files gracefully |
 | `vault_write` | Write a file with optional frontmatter merging; creates parent dirs |
+| `vault_patch` | Find-and-replace a unique text occurrence in a file — efficient for targeted edits |
+| `vault_append` | Append content to the end of a file — useful for daily logs and running notes |
 | `vault_batch_frontmatter_update` | Update YAML frontmatter fields on multiple files without touching body content |
 | `vault_search` | Full-text search across vault files (uses ripgrep if available, falls back to Python) |
 | `vault_search_frontmatter` | Query the in-memory frontmatter index by field value, substring, or field existence |

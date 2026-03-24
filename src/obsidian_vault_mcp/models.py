@@ -192,6 +192,53 @@ class VaultSearchFrontmatterInput(BaseModel):
     )
 
 
+class VaultPatchInput(BaseModel):
+    """Replace a unique text occurrence in a file."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    path: str = Field(
+        ...,
+        description="Relative path from vault root",
+        min_length=1,
+        max_length=500,
+    )
+    old_text: str = Field(
+        ...,
+        description="Exact text to find and replace (must appear exactly once in the file)",
+        min_length=1,
+        max_length=MAX_CONTENT_SIZE,
+    )
+    new_text: str = Field(
+        ...,
+        description="Replacement text",
+        max_length=MAX_CONTENT_SIZE,
+    )
+
+
+class VaultAppendInput(BaseModel):
+    """Append content to the end of a file."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    path: str = Field(
+        ...,
+        description="Relative path from vault root",
+        min_length=1,
+        max_length=500,
+    )
+    content: str = Field(
+        ...,
+        description="Content to append to the end of the file",
+        min_length=1,
+        max_length=MAX_CONTENT_SIZE,
+    )
+    create_if_missing: bool = Field(
+        default=False,
+        description="If true, create the file (and parent dirs) if it doesn't exist",
+    )
+
+
 class VaultBatchReadInput(BaseModel):
     """Read multiple vault files in a single request."""
 

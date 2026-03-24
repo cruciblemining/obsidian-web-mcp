@@ -68,3 +68,53 @@ def vault_batch_frontmatter_update(updates: list[dict]) -> str:
             results.append({"path": file_path, "updated": False, "error": str(e)})
 
     return json.dumps({"results": results})
+
+
+def vault_patch(path: str, old_text: str, new_text: str) -> str:
+    """Replace a unique text occurrence in a file. Fails if old_text is not found or matches multiple times."""
+    try:
+        content, _ = read_file(path)
+        count = content.count(old_text)
+        if count == 0:
+            return json.dumps({"error": "old_text not found in file", "path": path})
+        if count > 1:
+            return json.dumps({
+                "error": f"old_text matches {count} times — provide more context to make it unique",
+                "path": path,
+            })
+        new_content = content.replace(old_text, new_text, 1)
+        _, size = write_file_atomic(path, new_content, create_dirs=False)
+        fire_post_write("updated", [path])
+        return json.dumps({"path": path, "patched": True, "size": size})
+    except FileNotFoundError:
+        return json.dumps({"error": f"File not found: {path}", "path": path})
+    except ValueError as e:
+        return json.dumps({"error": str(e), "path": path})
+    except Exception as e:
+        logger.error(f"vault_patch error for {path}: {e}")
+        return json.dumps({"error": str(e), "path": path})
+
+
+def vault_append(path: str, content: str, create_if_missing: bool = False) -> str:
+    """Append content to the end of a file. Adds a newline before appending if the file doesn't end with one."""
+    try:
+        is_new = False
+        try:
+            existing, _ = read_file(path)
+            if existing and not existing.endswith("\n"):
+                content = "\n" + content
+            new_content = existing + content
+        except FileNotFoundError:
+            if not create_if_missing:
+                return json.dumps({"error": f"File not found: {path}", "path": path})
+            new_content = content
+            is_new = True
+
+        _, size = write_file_atomic(path, new_content, create_dirs=create_if_missing)
+        fire_post_write("created" if is_new else "updated", [path])
+        return json.dumps({"path": path, "appended": True, "size": size})
+    except ValueError as e:
+        return json.dumps({"error": str(e), "path": path})
+    except Exception as e:
+        logger.error(f"vault_append error for {path}: {e}")
+        return json.dumps({"error": str(e), "path": path})
