@@ -23,20 +23,19 @@ frontmatter_index = FrontmatterIndex()
 
 @asynccontextmanager
 async def lifespan(server):
-    """Start frontmatter index on server startup, stop on shutdown."""
-    logger.info(f"Starting vault MCP server. Vault: {VAULT_PATH}")
-    frontmatter_index.start()
-    logger.info(f"Frontmatter index built: {frontmatter_index.file_count} files indexed")
+    """Per-session MCP lifespan. The frontmatter index has a process-wide
+    lifecycle (started in main(), stopped at process exit) to avoid
+    double-scheduling the vault watcher when multiple sessions initialize.
+    """
     yield {"frontmatter_index": frontmatter_index}
-    frontmatter_index.stop()
-    logger.info("Vault MCP server shut down.")
 
 
 # Create the MCP server
 mcp = FastMCP(
     "obsidian_web_mcp",
-    stateless_http=True,
+    stateless_http=False,
     json_response=True,
+    streamable_http_path="/",
     lifespan=lifespan,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
@@ -231,12 +230,33 @@ def main():
     if not VAULT_MCP_TOKEN:
         logger.warning("VAULT_MCP_TOKEN is not set -- auth will reject all requests")
 
+    # Start the frontmatter index once for the process lifetime. The watcher
+    # thread is a daemon and will terminate when the process exits.
+    import atexit
+
+    logger.info(f"Starting vault MCP server. Vault: {VAULT_PATH}")
+    frontmatter_index.start()
+    logger.info(f"Frontmatter index built: {frontmatter_index.file_count} files indexed")
+    atexit.register(frontmatter_index.stop)
+
     # Build the Starlette app with auth middleware and OAuth endpoints
     try:
+        from starlette.responses import Response
+        from starlette.routing import Route
+
         from .auth import BearerAuthMiddleware
         from .oauth import oauth_routes
 
         app = mcp.streamable_http_app()
+
+        # MCP spec 2025-06-18 probe: HEAD/GET / must return the protocol version.
+        async def mcp_root_probe(request):
+            return Response(
+                status_code=200,
+                headers={"MCP-Protocol-Version": "2025-06-18"},
+            )
+
+        app.routes.insert(0, Route("/", mcp_root_probe, methods=["GET", "HEAD"]))
 
         # Mount OAuth routes (these are excluded from bearer auth via the middleware)
         for route in oauth_routes:

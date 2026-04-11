@@ -1,5 +1,7 @@
 """Bearer token authentication middleware for the vault MCP server."""
 
+import hmac
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -10,9 +12,17 @@ from .config import VAULT_MCP_TOKEN
 _AUTH_EXEMPT_PATHS = {
     "/health",
     "/.well-known/oauth-authorization-server",
+    "/authorize",
     "/oauth/authorize",
     "/oauth/token",
     "/oauth/register",
+}
+
+# (method, path) pairs exempt from auth — used for the MCP spec probe on /,
+# which must answer GET/HEAD without credentials while POST / stays authenticated.
+_AUTH_EXEMPT_METHOD_PATHS = {
+    ("GET", "/"),
+    ("HEAD", "/"),
 }
 
 
@@ -21,6 +31,9 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         if request.url.path in _AUTH_EXEMPT_PATHS:
+            return await call_next(request)
+
+        if (request.method, request.url.path) in _AUTH_EXEMPT_METHOD_PATHS:
             return await call_next(request)
 
         if not VAULT_MCP_TOKEN:
@@ -37,7 +50,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             )
 
         token = auth_header[7:]
-        if token != VAULT_MCP_TOKEN:
+        if not hmac.compare_digest(token, VAULT_MCP_TOKEN):
             return JSONResponse(
                 {"error": "Invalid token"},
                 status_code=401,
