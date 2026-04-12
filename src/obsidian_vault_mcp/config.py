@@ -26,6 +26,12 @@ VAULT_MCP_ALLOWED_HOSTS: list[str] = [
 #   MCP_PATHS      — colon-separated vault-relative paths of affected files
 VAULT_MCP_POST_WRITE_CMD = os.environ.get("VAULT_MCP_POST_WRITE_CMD", "")
 
+# Optional HTTP heartbeat URL (push-style health checks).
+# When set, the server GETs this URL every HEARTBEAT_INTERVAL seconds.
+# Works with Uptime Kuma, Healthchecks.io, Cronitor, or any push endpoint.
+VAULT_MCP_HEARTBEAT_URL = os.environ.get("VAULT_MCP_HEARTBEAT_URL", "")
+VAULT_MCP_HEARTBEAT_INTERVAL = int(os.environ.get("VAULT_MCP_HEARTBEAT_INTERVAL", "60"))
+
 # Safety limits
 MAX_CONTENT_SIZE = 1_000_000  # 1MB max write size
 MAX_BATCH_SIZE = 20           # Max files per batch operation
