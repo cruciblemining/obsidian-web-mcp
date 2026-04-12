@@ -12,7 +12,12 @@ from contextlib import asynccontextmanager
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .config import VAULT_MCP_PORT, VAULT_MCP_TOKEN, VAULT_PATH
+from .config import (
+    VAULT_MCP_ALLOWED_HOSTS,
+    VAULT_MCP_PORT,
+    VAULT_MCP_TOKEN,
+    VAULT_PATH,
+)
 from .frontmatter_index import FrontmatterIndex
 
 logger = logging.getLogger(__name__)
@@ -30,6 +35,14 @@ async def lifespan(server):
     yield {"frontmatter_index": frontmatter_index}
 
 
+# Build allowed_hosts: always include loopback, add any env-configured extras.
+_allowed_hosts = [
+    "127.0.0.1:*",
+    "localhost:*",
+    "[::1]:*",
+    *VAULT_MCP_ALLOWED_HOSTS,
+]
+
 # Create the MCP server
 mcp = FastMCP(
     "obsidian_web_mcp",
@@ -39,13 +52,7 @@ mcp = FastMCP(
     lifespan=lifespan,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=[
-            "127.0.0.1:*",
-            "localhost:*",
-            "[::1]:*",
-            # Add your tunnel hostname here, e.g.:
-            # "vault-mcp.example.com",
-        ],
+        allowed_hosts=_allowed_hosts,
     ),
 )
 

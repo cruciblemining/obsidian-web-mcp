@@ -104,6 +104,7 @@ All configuration is via environment variables:
 | `VAULT_MCP_PORT` | No | `8420` | Port the HTTP server listens on |
 | `VAULT_OAUTH_CLIENT_ID` | No | `vault-mcp-client` | OAuth 2.0 client ID for Claude integration |
 | `VAULT_OAUTH_CLIENT_SECRET` | Yes | (none) | OAuth 2.0 client secret for Claude integration |
+| `VAULT_MCP_ALLOWED_HOSTS` | No | (empty) | Comma-separated extra hostnames for DNS rebinding protection. Loopback (`127.0.0.1`, `localhost`, `[::1]`) is always allowed. Set this to your public tunnel hostname, e.g. `vault-mcp.example.com`. |
 
 Generate tokens with: `python -c "import secrets; print(secrets.token_hex(32))"`
 
@@ -136,16 +137,13 @@ export VAULT_MCP_HOSTNAME="vault-mcp.yourdomain.com"
 
 The script authenticates with Cloudflare, creates a tunnel, writes the config, and sets up the DNS record. You will need a domain managed by Cloudflare.
 
-After setup, add your tunnel hostname to the `allowed_hosts` list in `server.py` so the MCP library's DNS rebinding protection accepts requests from your domain:
+After setup, set `VAULT_MCP_ALLOWED_HOSTS` so the MCP library's DNS rebinding protection accepts requests from your tunnel hostname (loopback is always allowed):
 
-```python
-allowed_hosts=[
-    "127.0.0.1:*",
-    "localhost:*",
-    "[::1]:*",
-    "vault-mcp.yourdomain.com",  # add your hostname here
-],
+```bash
+export VAULT_MCP_ALLOWED_HOSTS="vault-mcp.yourdomain.com"
 ```
+
+For multiple hostnames, comma-separate: `VAULT_MCP_ALLOWED_HOSTS="a.example.com,b.example.com"`.
 
 ## Production Deployment (macOS)
 
