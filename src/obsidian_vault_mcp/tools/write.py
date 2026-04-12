@@ -5,6 +5,7 @@ import logging
 
 import frontmatter
 
+from ..hooks import fire_post_write
 from ..vault import resolve_vault_path, read_file, write_file_atomic
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,9 @@ def vault_write(path: str, content: str, create_dirs: bool = True, merge_frontma
 
         is_new, size = write_file_atomic(path, content, create_dirs=create_dirs)
 
+        operation = "created" if is_new else "updated"
+        fire_post_write(operation, [path])
+
         return json.dumps({"path": path, "created": is_new, "size": size})
     except ValueError as e:
         return json.dumps({"error": str(e), "path": path})
@@ -44,6 +48,7 @@ def vault_write(path: str, content: str, create_dirs: bool = True, merge_frontma
 def vault_batch_frontmatter_update(updates: list[dict]) -> str:
     """Update frontmatter fields on multiple files without changing body content."""
     results = []
+    updated_paths: list[str] = []
 
     for update in updates:
         file_path = update.get("path", "")
@@ -60,11 +65,15 @@ def vault_batch_frontmatter_update(updates: list[dict]) -> str:
             write_file_atomic(file_path, new_content, create_dirs=False)
 
             results.append({"path": file_path, "updated": True})
+            updated_paths.append(file_path)
         except FileNotFoundError:
             results.append({"path": file_path, "updated": False, "error": "File not found"})
         except ValueError as e:
             results.append({"path": file_path, "updated": False, "error": str(e)})
         except Exception as e:
             results.append({"path": file_path, "updated": False, "error": str(e)})
+
+    if updated_paths:
+        fire_post_write("updated frontmatter in", updated_paths)
 
     return json.dumps({"results": results})
