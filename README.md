@@ -105,6 +105,7 @@ All configuration is via environment variables:
 | `VAULT_OAUTH_CLIENT_ID` | No | `vault-mcp-client` | OAuth 2.0 client ID for Claude integration |
 | `VAULT_OAUTH_CLIENT_SECRET` | Yes | (none) | OAuth 2.0 client secret for Claude integration |
 | `VAULT_MCP_ALLOWED_HOSTS` | No | (empty) | Comma-separated extra hostnames for DNS rebinding protection. Loopback (`127.0.0.1`, `localhost`, `[::1]`) is always allowed. Set this to your public tunnel hostname, e.g. `vault-mcp.example.com`. |
+| `VAULT_MCP_POST_WRITE_CMD` | No | (empty) | Optional shell command run fire-and-forget after every vault mutation. Receives `MCP_OPERATION` (e.g. `created`, `updated`, `deleted`, `moved`) and `MCP_PATHS` (colon-separated vault-relative paths) as env vars. Useful for git sync, backups, webhooks. |
 
 Generate tokens with: `python -c "import secrets; print(secrets.token_hex(32))"`
 

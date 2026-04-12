@@ -19,6 +19,13 @@ VAULT_MCP_ALLOWED_HOSTS: list[str] = [
     if h.strip()
 ]
 
+# Post-write hook command (optional).
+# When set, this shell command is executed fire-and-forget after every vault
+# mutation.  Two env vars are injected:
+#   MCP_OPERATION  — e.g. "created", "updated", "deleted", "moved"
+#   MCP_PATHS      — colon-separated vault-relative paths of affected files
+VAULT_MCP_POST_WRITE_CMD = os.environ.get("VAULT_MCP_POST_WRITE_CMD", "")
+
 # Safety limits
 MAX_CONTENT_SIZE = 1_000_000  # 1MB max write size
 MAX_BATCH_SIZE = 20           # Max files per batch operation
