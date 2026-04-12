@@ -102,6 +102,8 @@ All configuration is via environment variables:
 | `VAULT_MCP_PORT` | No | `8420` | Port the HTTP server listens on |
 | `VAULT_OAUTH_CLIENT_ID` | No | `vault-mcp-client` | OAuth 2.0 client ID for Claude integration |
 | `VAULT_OAUTH_CLIENT_SECRET` | Yes | (none) | OAuth 2.0 client secret for Claude integration |
+| `VAULT_MCP_HEARTBEAT_URL` | No | (empty) | Optional HTTP GET URL hit every `HEARTBEAT_INTERVAL` seconds. Works with push-style health checks (Uptime Kuma, Healthchecks.io, Cronitor). |
+| `VAULT_MCP_HEARTBEAT_INTERVAL` | No | `60` | Heartbeat interval in seconds. |
 
 Generate tokens with: `python -c "import secrets; print(secrets.token_hex(32))"`
 

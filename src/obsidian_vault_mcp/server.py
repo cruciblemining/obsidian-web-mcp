@@ -4,15 +4,22 @@ Exposes read/write access to an Obsidian vault over Streamable HTTP.
 Designed to run behind Cloudflare Tunnel for secure remote access.
 """
 
-import json
+import asyncio
 import logging
 import sys
+import urllib.request
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .config import VAULT_MCP_PORT, VAULT_MCP_TOKEN, VAULT_PATH
+from .config import (
+    VAULT_MCP_HEARTBEAT_INTERVAL,
+    VAULT_MCP_HEARTBEAT_URL,
+    VAULT_MCP_PORT,
+    VAULT_MCP_TOKEN,
+    VAULT_PATH,
+)
 from .frontmatter_index import FrontmatterIndex
 
 logger = logging.getLogger(__name__)
@@ -21,15 +28,42 @@ logger = logging.getLogger(__name__)
 frontmatter_index = FrontmatterIndex()
 
 
+async def _heartbeat_loop(url: str, interval: int) -> None:
+    """Send periodic HTTP GET heartbeats to a push-style health check endpoint."""
+    def _send() -> int:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return resp.status
+
+    while True:
+        try:
+            status = await asyncio.to_thread(_send)
+            logger.debug("Heartbeat sent: HTTP %s", status)
+        except Exception as exc:
+            logger.debug("Heartbeat failed: %s", exc)
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(server):
     """Start frontmatter index on server startup, stop on shutdown."""
     logger.info(f"Starting vault MCP server. Vault: {VAULT_PATH}")
     frontmatter_index.start()
     logger.info(f"Frontmatter index built: {frontmatter_index.file_count} files indexed")
-    yield {"frontmatter_index": frontmatter_index}
-    frontmatter_index.stop()
-    logger.info("Vault MCP server shut down.")
+
+    heartbeat_task = None
+    if VAULT_MCP_HEARTBEAT_URL:
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_loop(VAULT_MCP_HEARTBEAT_URL, VAULT_MCP_HEARTBEAT_INTERVAL)
+        )
+        logger.info("Heartbeat enabled (interval: %ds)", VAULT_MCP_HEARTBEAT_INTERVAL)
+
+    try:
+        yield {"frontmatter_index": frontmatter_index}
+    finally:
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+        frontmatter_index.stop()
+        logger.info("Vault MCP server shut down.")
 
 
 # Create the MCP server

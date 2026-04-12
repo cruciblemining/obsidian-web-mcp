@@ -10,6 +10,12 @@ VAULT_MCP_PORT = int(os.environ.get("VAULT_MCP_PORT", "8420"))
 VAULT_OAUTH_CLIENT_ID = os.environ.get("VAULT_OAUTH_CLIENT_ID", "vault-mcp-client")
 VAULT_OAUTH_CLIENT_SECRET = os.environ.get("VAULT_OAUTH_CLIENT_SECRET", "")
 
+# Optional HTTP heartbeat URL (push-style health checks).
+# When set, the server GETs this URL every HEARTBEAT_INTERVAL seconds.
+# Works with Uptime Kuma, Healthchecks.io, Cronitor, or any push endpoint.
+VAULT_MCP_HEARTBEAT_URL = os.environ.get("VAULT_MCP_HEARTBEAT_URL", "")
+VAULT_MCP_HEARTBEAT_INTERVAL = int(os.environ.get("VAULT_MCP_HEARTBEAT_INTERVAL", "60"))
+
 # Safety limits
 MAX_CONTENT_SIZE = 1_000_000  # 1MB max write size
 MAX_BATCH_SIZE = 20           # Max files per batch operation
