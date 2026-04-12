@@ -32,6 +32,13 @@ VAULT_MCP_POST_WRITE_CMD = os.environ.get("VAULT_MCP_POST_WRITE_CMD", "")
 VAULT_MCP_HEARTBEAT_URL = os.environ.get("VAULT_MCP_HEARTBEAT_URL", "")
 VAULT_MCP_HEARTBEAT_INTERVAL = int(os.environ.get("VAULT_MCP_HEARTBEAT_INTERVAL", "60"))
 
+# Public base URL override (optional).
+# When set, OAuth metadata endpoints advertise this URL instead of deriving
+# it from request headers. Useful behind proxies/tunnels (Cloudflare Tunnel
+# uses CF-Visitor, standard reverse proxies use X-Forwarded-Proto; explicit
+# override sidesteps all detection). Example: "https://vault-mcp.example.com".
+VAULT_PUBLIC_BASE_URL = os.environ.get("VAULT_PUBLIC_BASE_URL", "").strip().rstrip("/")
+
 # Safety limits
 MAX_CONTENT_SIZE = 1_000_000  # 1MB max write size
 MAX_BATCH_SIZE = 20           # Max files per batch operation

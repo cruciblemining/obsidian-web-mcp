@@ -108,6 +108,7 @@ All configuration is via environment variables:
 | `VAULT_MCP_POST_WRITE_CMD` | No | (empty) | Optional shell command run fire-and-forget after every vault mutation. Receives `MCP_OPERATION` (e.g. `created`, `updated`, `deleted`, `moved`) and `MCP_PATHS` (colon-separated vault-relative paths) as env vars. Useful for git sync, backups, webhooks. |
 | `VAULT_MCP_HEARTBEAT_URL` | No | (empty) | Optional HTTP GET URL hit every `HEARTBEAT_INTERVAL` seconds. Works with push-style health checks (Uptime Kuma, Healthchecks.io, Cronitor). |
 | `VAULT_MCP_HEARTBEAT_INTERVAL` | No | `60` | Heartbeat interval in seconds. |
+| `VAULT_PUBLIC_BASE_URL` | No | (empty) | Explicit public base URL (e.g. `https://vault-mcp.example.com`) for OAuth metadata. Set this when auto-detection from proxy/tunnel headers isn't reliable — e.g. behind Cloudflare Tunnel, which sends `CF-Visitor` rather than `X-Forwarded-Proto`. |
 
 Generate tokens with: `python -c "import secrets; print(secrets.token_hex(32))"`
 

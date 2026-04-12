@@ -81,9 +81,44 @@ def _cleanup_codes():
         del _auth_codes[k]
 
 
+def _public_base_url(request: Request) -> str:
+    """Return externally reachable base URL for OAuth metadata documents.
+
+    Tiered fallback for deployments behind proxies/tunnels:
+    1. VAULT_PUBLIC_BASE_URL env override (explicit)
+    2. X-Forwarded-Proto + X-Forwarded-Host (standard reverse proxies)
+    3. CF-Visitor header (Cloudflare Tunnel, JSON-encoded scheme)
+    4. Upgrade to https if request is http and Host isn't loopback
+    """
+    if config.VAULT_PUBLIC_BASE_URL:
+        return config.VAULT_PUBLIC_BASE_URL
+
+    host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+    if not host:
+        host = request.headers.get("host", "").strip()
+
+    proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    if proto and host:
+        return f"{proto}://{host}"
+
+    cf_visitor = request.headers.get("cf-visitor", "")
+    if cf_visitor and host:
+        try:
+            scheme = json.loads(cf_visitor).get("scheme", "").strip()
+        except json.JSONDecodeError:
+            scheme = ""
+        if scheme:
+            return f"{scheme}://{host}"
+
+    base_url = str(request.base_url).rstrip("/")
+    if base_url.startswith("http://") and host and host not in {"127.0.0.1", "localhost", "[::1]"}:
+        return f"https://{host}"
+    return base_url
+
+
 async def oauth_metadata(request: Request) -> JSONResponse:
     """RFC 8414 OAuth authorization server metadata."""
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request)
     return JSONResponse({
         "issuer": base_url,
         "authorization_endpoint": f"{base_url}/oauth/authorize",
@@ -104,7 +139,7 @@ async def protected_resource_metadata(request: Request) -> JSONResponse:
     client can't start the OAuth flow and reports "Failed to connect"
     instead of "Needs authentication".
     """
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request)
     return JSONResponse({
         "resource": base_url,
         "authorization_servers": [base_url],
