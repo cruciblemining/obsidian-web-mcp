@@ -39,6 +39,19 @@ VAULT_MCP_HEARTBEAT_INTERVAL = int(os.environ.get("VAULT_MCP_HEARTBEAT_INTERVAL"
 # override sidesteps all detection). Example: "https://vault-mcp.example.com".
 VAULT_PUBLIC_BASE_URL = os.environ.get("VAULT_PUBLIC_BASE_URL", "").strip().rstrip("/")
 
+# Streamable-HTTP transport tuning.
+# stateless=True (default) makes every POST independent — no Mcp-Session-Id
+# round-trip required. Stateful mode is MCP 2025-06-18 spec-correct but breaks
+# with clients (e.g. Claude's remote connector) that don't echo the session
+# header back. Set VAULT_MCP_STATELESS=false only if you know your client
+# supports session correlation.
+VAULT_MCP_STATELESS = os.environ.get("VAULT_MCP_STATELESS", "true").strip().lower() in ("true", "1", "yes")
+# Path where the MCP endpoint is mounted. Must match what your client POSTs.
+# Cloudflare Tunnel passes the full path through by default, so if your public
+# URL is https://host/mcp you need "/mcp" here. Use "/" only if your proxy
+# strips the prefix before forwarding.
+VAULT_MCP_PATH = os.environ.get("VAULT_MCP_PATH", "/mcp")
+
 # Safety limits
 MAX_CONTENT_SIZE = 1_000_000  # 1MB max write size
 MAX_BATCH_SIZE = 20           # Max files per batch operation

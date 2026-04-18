@@ -17,7 +17,9 @@ from .config import (
     VAULT_MCP_ALLOWED_HOSTS,
     VAULT_MCP_HEARTBEAT_INTERVAL,
     VAULT_MCP_HEARTBEAT_URL,
+    VAULT_MCP_PATH,
     VAULT_MCP_PORT,
+    VAULT_MCP_STATELESS,
     VAULT_MCP_TOKEN,
     VAULT_PATH,
 )
@@ -75,9 +77,9 @@ _allowed_hosts = [
 # Create the MCP server
 mcp = FastMCP(
     "obsidian_web_mcp",
-    stateless_http=False,
+    stateless_http=VAULT_MCP_STATELESS,
     json_response=True,
-    streamable_http_path="/",
+    streamable_http_path=VAULT_MCP_PATH,
     lifespan=lifespan,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
