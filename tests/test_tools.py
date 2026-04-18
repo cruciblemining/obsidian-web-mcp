@@ -48,6 +48,37 @@ def test_vault_search_finds_text(vault_dir):
     assert result["results"][0]["path"] == "test-note.md"
 
 
+def test_vault_search_serializes_frontmatter_dates(vault_dir):
+    """vault_search must JSON-serialize datetime/date values parsed from YAML frontmatter."""
+    (vault_dir / "dated-note.md").write_text(
+        "---\ncreated: 2025-01-15\nreviewed: 2025-06-01 10:30:00\n"
+        "milestones:\n  - date: 2025-03-01\n    label: kickoff\n"
+        "---\n\ndated content body.\n"
+    )
+
+    raw = vault_search("dated content")
+    result = json.loads(raw)
+    assert "error" not in result
+    assert result["total_matches"] >= 1
+
+    match = next(r for r in result["results"] if r["path"] == "dated-note.md")
+    fm = match["frontmatter_excerpt"]
+    assert isinstance(fm["created"], str)
+    assert fm["created"].startswith("2025-01-15")
+
+
+def test_vault_read_serializes_frontmatter_dates(vault_dir):
+    """vault_read must JSON-serialize datetime/date values parsed from YAML frontmatter."""
+    (vault_dir / "dated-read.md").write_text(
+        "---\ndue: 2025-12-31\n---\n\nbody.\n"
+    )
+
+    result = json.loads(vault_read("dated-read.md"))
+    assert "error" not in result
+    assert isinstance(result["frontmatter"]["due"], str)
+    assert result["frontmatter"]["due"].startswith("2025-12-31")
+
+
 def test_vault_batch_read_handles_missing(vault_dir):
     """vault_batch_read returns errors for missing files without failing."""
     result = json.loads(vault_batch_read(
