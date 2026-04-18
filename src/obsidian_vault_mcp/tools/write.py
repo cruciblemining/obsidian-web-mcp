@@ -3,8 +3,7 @@
 import json
 import logging
 
-import frontmatter
-
+from .. import frontmatter_io
 from ..vault import resolve_vault_path, read_file, write_file_atomic
 
 logger = logging.getLogger(__name__)
@@ -18,14 +17,15 @@ def vault_write(path: str, content: str, create_dirs: bool = True, merge_frontma
         if merge_frontmatter:
             try:
                 existing_content, _ = read_file(path)
-                existing_post = frontmatter.loads(existing_content)
-                new_post = frontmatter.loads(content)
+                existing_meta, _ = frontmatter_io.loads(existing_content)
+                new_meta, new_body = frontmatter_io.loads(content)
 
-                merged_meta = dict(existing_post.metadata)
-                merged_meta.update(new_post.metadata)
+                # Update the existing CommentedMap in place so formatting of
+                # untouched keys is preserved; new keys are appended.
+                for key, value in new_meta.items():
+                    existing_meta[key] = value
 
-                new_post.metadata = merged_meta
-                content = frontmatter.dumps(new_post)
+                content = frontmatter_io.dumps(existing_meta, new_body)
             except FileNotFoundError:
                 pass
             except Exception as e:
@@ -51,12 +51,12 @@ def vault_batch_frontmatter_update(updates: list[dict]) -> str:
 
         try:
             content, _ = read_file(file_path)
-            post = frontmatter.loads(content)
+            metadata, body = frontmatter_io.loads(content)
 
             for key, value in fields.items():
-                post.metadata[key] = value
+                metadata[key] = value
 
-            new_content = frontmatter.dumps(post)
+            new_content = frontmatter_io.dumps(metadata, body)
             write_file_atomic(file_path, new_content, create_dirs=False)
 
             results.append({"path": file_path, "updated": True})

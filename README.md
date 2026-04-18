@@ -61,6 +61,10 @@ This is a server that provides network access to your personal notes. Security i
 | `vault_move` | Move or rename a file or directory within the vault |
 | `vault_delete` | Soft-delete a file by moving it to `.trash/` (requires explicit confirmation) |
 
+### Frontmatter formatting is preserved
+
+`vault_write` (with `merge_frontmatter=True`) and `vault_batch_frontmatter_update` parse and re-emit YAML via `ruamel.yaml` in round-trip mode. Quote styles (unquoted/single/double), boolean forms (`yes`/`no` vs `true`/`false`), block vs flow lists, literal-block strings (`|`), key order, and inline comments all survive a load-then-dump cycle. Users who format their frontmatter with the Obsidian Linter plugin or `yamllint` won't see that formatting rewritten on every update.
+
 ## Prerequisites
 
 - Python 3.12+
