@@ -24,12 +24,10 @@ _FRONTMATTER_RE = re.compile(
 )
 
 
-def _yaml() -> YAML:
-    y = YAML(typ="rt")
-    y.preserve_quotes = True
-    y.width = 4096
-    y.indent(mapping=2, sequence=4, offset=2)
-    return y
+_YAML = YAML(typ="rt")
+_YAML.preserve_quotes = True
+_YAML.width = 4096
+_YAML.indent(mapping=2, sequence=4, offset=2)
 
 
 def loads(content: str) -> tuple[dict, str]:
@@ -54,7 +52,7 @@ def loads(content: str) -> tuple[dict, str]:
         raw_yaml += "\n"
 
     try:
-        metadata = _yaml().load(raw_yaml)
+        metadata = _YAML.load(raw_yaml)
     except YAMLError as e:
         logger.warning("YAML frontmatter parse failed: %s", e)
         return {}, content
@@ -65,18 +63,14 @@ def loads(content: str) -> tuple[dict, str]:
     return metadata, body
 
 
-def dumps(metadata, body: str) -> str:
+def dumps(metadata: dict | None, body: str) -> str:
     """Serialize (metadata, body) back to a markdown file.
 
     Empty metadata writes the body unchanged (no delimiters).
     """
-    if metadata is None or len(metadata) == 0:
+    if not metadata:
         return body
 
     buf = io.StringIO()
-    _yaml().dump(metadata, buf)
-    yaml_text = buf.getvalue()
-    if yaml_text.endswith("\n"):
-        yaml_text = yaml_text[:-1]
-
-    return f"---\n{yaml_text}\n---\n{body}"
+    _YAML.dump(metadata, buf)
+    return f"---\n{buf.getvalue()}---\n{body}"

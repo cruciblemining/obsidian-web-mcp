@@ -20,8 +20,8 @@ def vault_write(path: str, content: str, create_dirs: bool = True, merge_frontma
                 existing_meta, _ = frontmatter_io.loads(existing_content)
                 new_meta, new_body = frontmatter_io.loads(content)
 
-                # Update the existing CommentedMap in place so formatting of
-                # untouched keys is preserved; new keys are appended.
+                # Mutate existing in place: untouched keys keep their original
+                # formatting (quote style, comments); new keys are appended.
                 for key, value in new_meta.items():
                     existing_meta[key] = value
 
@@ -52,6 +52,10 @@ def vault_batch_frontmatter_update(updates: list[dict]) -> str:
         try:
             content, _ = read_file(file_path)
             metadata, body = frontmatter_io.loads(content)
+
+            if all(metadata.get(k) == v for k, v in fields.items()):
+                results.append({"path": file_path, "updated": False, "unchanged": True})
+                continue
 
             for key, value in fields.items():
                 metadata[key] = value
