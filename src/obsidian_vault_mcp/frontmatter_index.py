@@ -5,11 +5,10 @@ import threading
 import time
 from pathlib import Path
 
-import frontmatter
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from . import config
+from . import config, frontmatter_io
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +110,9 @@ class FrontmatterIndex:
     def _parse_frontmatter(self, path: Path) -> dict | None:
         """Parse YAML frontmatter from a markdown file. Returns None on failure."""
         try:
-            post = frontmatter.load(str(path))
-            return dict(post.metadata)
+            content = path.read_text(encoding="utf-8")
+            fm, _ = frontmatter_io.loads(content)
+            return dict(fm)
         except Exception:
             logger.warning("Failed to parse frontmatter: %s", path)
             return None

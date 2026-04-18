@@ -52,23 +52,3 @@ def test_search_with_prefix(index, vault_dir):
         assert r["path"].startswith("subfolder/")
 
 
-def test_frontmatter_merge(vault_dir):
-    """Existing frontmatter merged with new fields, body preserved."""
-    import frontmatter
-    from obsidian_vault_mcp.vault import read_file, write_file_atomic
-
-    # Read original
-    content, _ = read_file("test-note.md")
-    post = frontmatter.loads(content)
-    original_body = post.content
-
-    # Merge new field
-    post.metadata["new_field"] = "new_value"
-    write_file_atomic("test-note.md", frontmatter.dumps(post))
-
-    # Verify
-    content2, _ = read_file("test-note.md")
-    post2 = frontmatter.loads(content2)
-    assert post2.metadata["status"] == "active"  # preserved
-    assert post2.metadata["new_field"] == "new_value"  # added
-    assert original_body.strip() in post2.content  # body preserved

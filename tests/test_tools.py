@@ -41,6 +41,64 @@ def test_vault_write_merge_frontmatter(vault_dir):
     assert read_result["frontmatter"]["priority"] == "high"  # new
 
 
+def test_vault_batch_frontmatter_update_preserves_formatting(vault_dir):
+    """Updating one field via vault_batch_frontmatter_update leaves other
+    fields byte-identical — quote style, block lists, literal blocks,
+    yes/no booleans, and inline comments all survive."""
+    original = (
+        "---\n"
+        "status: 'active'\n"
+        "active: yes\n"
+        "tags:\n"
+        "  - alpha\n"
+        "  - beta\n"
+        "priority: 1  # current priority\n"
+        "description: |\n"
+        "  Line one.\n"
+        "  Line two.\n"
+        "---\n"
+        "\n"
+        "Body content.\n"
+    )
+    (vault_dir / "quirky.md").write_text(original)
+
+    result = json.loads(vault_batch_frontmatter_update([
+        {"path": "quirky.md", "fields": {"priority": 2}}
+    ]))
+    assert result["results"][0]["updated"] is True
+
+    after = (vault_dir / "quirky.md").read_text()
+    assert "status: 'active'" in after
+    assert "active: yes" in after
+    assert "- alpha" in after
+    assert "- beta" in after
+    assert "# current priority" in after
+    assert "description: |" in after
+    assert "Line one." in after
+    assert "priority: 2" in after
+    assert "\nBody content.\n" in after
+
+
+def test_vault_batch_frontmatter_update_no_change_is_byte_identical(vault_dir):
+    """Updating a field to its current value produces byte-identical output."""
+    original = (
+        "---\n"
+        "status: 'active'\n"
+        "tags:\n"
+        "  - alpha\n"
+        "  - beta\n"
+        "---\n"
+        "Body.\n"
+    )
+    (vault_dir / "stable.md").write_text(original)
+
+    json.loads(vault_batch_frontmatter_update([
+        {"path": "stable.md", "fields": {"status": "active"}}
+    ]))
+
+    assert (vault_dir / "stable.md").read_text() == original
+
+
 def test_vault_search_finds_text(vault_dir):
     """vault_search finds text in files."""
     result = json.loads(vault_search("test note"))
