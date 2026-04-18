@@ -1,5 +1,10 @@
 # obsidian-web-mcp
 
+> [!NOTE]
+> **Community-maintained fork.** This repository consolidates work from several independent forks of [jimprosser/obsidian-web-mcp](https://github.com/jimprosser/obsidian-web-mcp) into a single actively-maintained tree. See [Credits](#credits) for contributors. Issues and pull requests welcome.
+>
+> Maintainers use AI assistants (with human review) — see [CONTRIBUTING.md](CONTRIBUTING.md#ai-tooling).
+
 A secure, remote-accessible MCP server that gives LLMs read/write access to your Obsidian vault from anywhere -- your desktop, your phone, a hotel Wi-Fi network. Unlike local-only Obsidian MCP servers, this one runs over HTTPS with real authentication, so Claude (or any MCP client) can reach your vault whether you're at your desk or not.
 
 It reads and writes markdown files on disk, parses YAML frontmatter, maintains an in-memory frontmatter index for fast queries, and handles full-text search -- all behind OAuth 2.0 authentication and a Cloudflare Tunnel that never exposes your machine directly to the internet.
@@ -234,6 +239,26 @@ scripts/
     setup-tunnel.sh         # Interactive Cloudflare Tunnel setup
     launchd/                # macOS launchd plist templates
 ```
+
+## Credits
+
+Original project by **[Jim Prosser](https://github.com/jimprosser)** — [jimprosser/obsidian-web-mcp](https://github.com/jimprosser/obsidian-web-mcp).
+
+This fork integrates work from the following contributors (listed alphabetically). Each retains authorship on their original commits in the history:
+
+- **[Chris (casmokey)](https://github.com/casmokey)** — OAuth discovery metadata advertisement for MCP clients.
+- **[jdubdevs](https://github.com/jdubdevs)** — JSON serialization fix for YAML `date` objects in read/search tools.
+- **[Jason Zhu](https://github.com/jasonz-ncc42)** — `vault_patch`, `vault_append`, `vault_tree`, and `vault_context` tools; OAuth 500 fix.
+- **Marcelo Toledo** — MCP spec 2025-06-18 compliance, OAuth client persistence, session-lifecycle and observer-lifecycle fixes.
+- **[Michael Leitner](https://github.com/mleitnercom)** — PDF text extraction, wikilink analytics and replace support, OAuth persistence and protected-resource metadata, date-serialization hardening, binary-read fixes, release hygiene.
+- **[Paul Trotter](https://github.com/ptrotter1)** — `VAULT_MCP_HOST` public-hostname config, OAuth protected-resource endpoint, frontmatter-observer startup fix.
+- **[tryingtowork](https://github.com/tryingtowork)** — MCP SDK version pin to avoid idle timeout, Docker deployment files, allowed-hosts additions, date/datetime JSON handling.
+
+Contributions were adopted in good faith based on public commit history; contributors did not necessarily coordinate on this consolidation. If you are listed here and prefer not to be, please open an issue and we will remove the attribution.
+
+## Contributing
+
+Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, PR expectations, branch naming, and merge strategy.
 
 ## License
 
