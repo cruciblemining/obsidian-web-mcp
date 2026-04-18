@@ -6,9 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import frontmatter
-
-from .. import config
+from .. import config, frontmatter_io
 from ..vault import resolve_vault_path
 
 logger = logging.getLogger(__name__)
@@ -129,11 +127,11 @@ def _get_frontmatter_excerpt(file_path: Path, max_keys: int = 3) -> dict | None:
     """Read frontmatter from a file, returning first N key-value pairs."""
     try:
         content = file_path.read_text(encoding="utf-8")
-        post = frontmatter.loads(content)
-        if not post.metadata:
+        fm, _ = frontmatter_io.loads(content)
+        if not fm:
             return None
-        keys = list(post.metadata.keys())[:max_keys]
-        return {k: post.metadata[k] for k in keys}
+        keys = list(fm.keys())[:max_keys]
+        return {k: fm[k] for k in keys}
     except Exception:
         return None
 

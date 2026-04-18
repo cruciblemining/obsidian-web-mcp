@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "mcp[cli]>=1.9.0",
-    "python-frontmatter>=1.1.0",
     "pydantic>=2.0",
     "ruamel.yaml>=0.18",
     "watchdog>=4.0.0",

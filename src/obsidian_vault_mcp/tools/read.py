@@ -3,8 +3,7 @@
 import json
 import logging
 
-import frontmatter
-
+from .. import frontmatter_io
 from ..vault import resolve_vault_path, read_file
 
 logger = logging.getLogger(__name__)
@@ -18,9 +17,9 @@ def vault_read(path: str) -> str:
 
         fm_data = None
         try:
-            post = frontmatter.loads(content)
-            if post.metadata:
-                fm_data = post.metadata
+            fm, _ = frontmatter_io.loads(content)
+            if fm:
+                fm_data = fm
         except Exception:
             pass
 
@@ -51,9 +50,9 @@ def vault_batch_read(paths: list[str], include_content: bool = True) -> str:
 
             fm_data = None
             try:
-                post = frontmatter.loads(content)
-                if post.metadata:
-                    fm_data = post.metadata
+                fm, _ = frontmatter_io.loads(content)
+                if fm:
+                    fm_data = fm
             except Exception:
                 pass
 
