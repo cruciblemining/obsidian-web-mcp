@@ -1,5 +1,10 @@
 # obsidian-web-mcp
 
+> [!NOTE]
+> **Community-maintained fork.** This repository consolidates work from several independent forks of [jimprosser/obsidian-web-mcp](https://github.com/jimprosser/obsidian-web-mcp) into a single actively-maintained tree. See [Credits](#credits) for contributors. Issues and pull requests welcome.
+>
+> Maintainers use AI assistants (with human review) — see [CONTRIBUTING.md](CONTRIBUTING.md#ai-tooling).
+
 A secure, remote-accessible MCP server that gives LLMs read/write access to your Obsidian vault from anywhere -- your desktop, your phone, a hotel Wi-Fi network. Unlike local-only Obsidian MCP servers, this one runs over HTTPS with real authentication, so Claude (or any MCP client) can reach your vault whether you're at your desk or not.
 
 It reads and writes markdown files on disk, parses YAML frontmatter, maintains an in-memory frontmatter index for fast queries, and handles full-text search -- all behind OAuth 2.0 authentication and a Cloudflare Tunnel that never exposes your machine directly to the internet.
@@ -54,6 +59,8 @@ This is a server that provides network access to your personal notes. Security i
 | `vault_read` | Read a file, returning content, metadata, and parsed YAML frontmatter |
 | `vault_batch_read` | Read multiple files in one call; handles missing files gracefully |
 | `vault_write` | Write a file with optional frontmatter merging; creates parent dirs |
+| `vault_patch` | Find-and-replace a unique text occurrence in a file — efficient for targeted edits |
+| `vault_append` | Append content to the end of a file — useful for daily logs and running notes |
 | `vault_batch_frontmatter_update` | Update YAML frontmatter fields on multiple files without touching body content |
 | `vault_search` | Full-text search across vault files (uses ripgrep if available, falls back to Python) |
 | `vault_search_frontmatter` | Query the in-memory frontmatter index by field value, substring, or field existence |
@@ -106,6 +113,11 @@ All configuration is via environment variables:
 | `VAULT_MCP_PORT` | No | `8420` | Port the HTTP server listens on |
 | `VAULT_OAUTH_CLIENT_ID` | No | `vault-mcp-client` | OAuth 2.0 client ID for Claude integration |
 | `VAULT_OAUTH_CLIENT_SECRET` | Yes | (none) | OAuth 2.0 client secret for Claude integration |
+| `VAULT_MCP_ALLOWED_HOSTS` | No | (empty) | Comma-separated extra hostnames for DNS rebinding protection. Loopback (`127.0.0.1`, `localhost`, `[::1]`) is always allowed. Set this to your public tunnel hostname, e.g. `vault-mcp.example.com`. |
+| `VAULT_MCP_POST_WRITE_CMD` | No | (empty) | Optional shell command run fire-and-forget after every vault mutation. Receives `MCP_OPERATION` (e.g. `created`, `updated`, `deleted`, `moved`) and `MCP_PATHS` (colon-separated vault-relative paths) as env vars. Useful for git sync, backups, webhooks. |
+| `VAULT_MCP_HEARTBEAT_URL` | No | (empty) | Optional HTTP GET URL hit every `HEARTBEAT_INTERVAL` seconds. Works with push-style health checks (Uptime Kuma, Healthchecks.io, Cronitor). |
+| `VAULT_MCP_HEARTBEAT_INTERVAL` | No | `60` | Heartbeat interval in seconds. |
+| `VAULT_PUBLIC_BASE_URL` | No | (empty) | Explicit public base URL (e.g. `https://vault-mcp.example.com`) for OAuth metadata. Set this when auto-detection from proxy/tunnel headers isn't reliable — e.g. behind Cloudflare Tunnel, which sends `CF-Visitor` rather than `X-Forwarded-Proto`. |
 
 Generate tokens with: `python -c "import secrets; print(secrets.token_hex(32))"`
 
@@ -138,16 +150,13 @@ export VAULT_MCP_HOSTNAME="vault-mcp.yourdomain.com"
 
 The script authenticates with Cloudflare, creates a tunnel, writes the config, and sets up the DNS record. You will need a domain managed by Cloudflare.
 
-After setup, add your tunnel hostname to the `allowed_hosts` list in `server.py` so the MCP library's DNS rebinding protection accepts requests from your domain:
+After setup, set `VAULT_MCP_ALLOWED_HOSTS` so the MCP library's DNS rebinding protection accepts requests from your tunnel hostname (loopback is always allowed):
 
-```python
-allowed_hosts=[
-    "127.0.0.1:*",
-    "localhost:*",
-    "[::1]:*",
-    "vault-mcp.yourdomain.com",  # add your hostname here
-],
+```bash
+export VAULT_MCP_ALLOWED_HOSTS="vault-mcp.yourdomain.com"
 ```
+
+For multiple hostnames, comma-separate: `VAULT_MCP_ALLOWED_HOSTS="a.example.com,b.example.com"`.
 
 ## Production Deployment (macOS)
 
@@ -234,6 +243,24 @@ scripts/
     setup-tunnel.sh         # Interactive Cloudflare Tunnel setup
     launchd/                # macOS launchd plist templates
 ```
+
+## Credits
+
+Original project by **[Jim Prosser](https://github.com/jimprosser)** — [jimprosser/obsidian-web-mcp](https://github.com/jimprosser/obsidian-web-mcp).
+
+This fork integrates work from the following contributors (listed alphabetically). Each retains authorship on their original commits in the history:
+
+- **[Chris (casmokey)](https://github.com/casmokey)** — OAuth discovery metadata advertisement for MCP clients.
+- **[jdubdevs](https://github.com/jdubdevs)** — JSON serialization fix for YAML `date` objects in read/search tools.
+- **[Jason Zhu](https://github.com/jasonz-ncc42)** — `vault_patch` and `vault_append` tools for efficient file editing.
+- **Marcelo Toledo** — MCP spec 2025-06-18 compliance, OAuth client persistence, session-lifecycle and observer-lifecycle fixes.
+- **[Michael Leitner](https://github.com/mleitnercom)** — public-URL detection behind TLS-terminating tunnels and reverse proxies, so OAuth discovery metadata advertises `https://` endpoints correctly.
+
+Contributions were adopted in good faith based on public commit history; contributors did not necessarily coordinate on this consolidation. If you are listed here and prefer not to be, please open an issue and we will remove the attribution.
+
+## Contributing
+
+Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, PR expectations, branch naming, and merge strategy.
 
 ## License
 

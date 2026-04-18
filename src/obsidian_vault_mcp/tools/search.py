@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .. import config, frontmatter_io
+from ..serialization import dumps
 from ..vault import resolve_vault_path
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,7 @@ def vault_search(
             search_path = config.VAULT_PATH
 
         if not search_path.is_dir():
-            return json.dumps({"error": f"Search path is not a directory: {path_prefix}"})
+            return dumps({"error": f"Search path is not a directory: {path_prefix}"})
 
         if shutil.which("rg"):
             matches = _search_ripgrep(query, search_path, file_pattern, max_results, context_lines)
@@ -164,16 +165,16 @@ def vault_search(
 
         truncated = len(matches) >= max_results
 
-        return json.dumps({
+        return dumps({
             "results": matches,
             "total_matches": len(matches),
             "truncated": truncated,
         })
     except ValueError as e:
-        return json.dumps({"error": str(e)})
+        return dumps({"error": str(e)})
     except Exception as e:
         logger.error(f"vault_search error: {e}")
-        return json.dumps({"error": str(e)})
+        return dumps({"error": str(e)})
 
 
 def vault_search_frontmatter(
@@ -207,11 +208,11 @@ def vault_search_frontmatter(
 
         truncated = len(results) > max_results
 
-        return json.dumps({
+        return dumps({
             "results": formatted,
             "total": len(formatted),
             "truncated": truncated,
         })
     except Exception as e:
         logger.error(f"vault_search_frontmatter error: {e}")
-        return json.dumps({"error": str(e)})
+        return dumps({"error": str(e)})

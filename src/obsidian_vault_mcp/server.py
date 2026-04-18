@@ -4,15 +4,23 @@ Exposes read/write access to an Obsidian vault over Streamable HTTP.
 Designed to run behind Cloudflare Tunnel for secure remote access.
 """
 
-import json
+import asyncio
 import logging
 import sys
+import urllib.request
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .config import VAULT_MCP_PORT, VAULT_MCP_TOKEN, VAULT_PATH
+from .config import (
+    VAULT_MCP_ALLOWED_HOSTS,
+    VAULT_MCP_HEARTBEAT_INTERVAL,
+    VAULT_MCP_HEARTBEAT_URL,
+    VAULT_MCP_PORT,
+    VAULT_MCP_TOKEN,
+    VAULT_PATH,
+)
 from .frontmatter_index import FrontmatterIndex
 
 logger = logging.getLogger(__name__)
@@ -21,32 +29,59 @@ logger = logging.getLogger(__name__)
 frontmatter_index = FrontmatterIndex()
 
 
+async def _heartbeat_loop(url: str, interval: int) -> None:
+    """Send periodic HTTP GET heartbeats to a push-style health check endpoint."""
+    def _send() -> int:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return resp.status
+
+    while True:
+        try:
+            status = await asyncio.to_thread(_send)
+            logger.debug("Heartbeat sent: HTTP %s", status)
+        except Exception as exc:
+            logger.debug("Heartbeat failed: %s", exc)
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(server):
-    """Start frontmatter index on server startup, stop on shutdown."""
-    logger.info(f"Starting vault MCP server. Vault: {VAULT_PATH}")
-    frontmatter_index.start()
-    logger.info(f"Frontmatter index built: {frontmatter_index.file_count} files indexed")
-    yield {"frontmatter_index": frontmatter_index}
-    frontmatter_index.stop()
-    logger.info("Vault MCP server shut down.")
+    """Per-session MCP lifespan. The frontmatter index has a process-wide
+    lifecycle (started in main(), stopped at process exit) to avoid
+    double-scheduling the vault watcher when multiple sessions initialize.
+    """
+    heartbeat_task = None
+    if VAULT_MCP_HEARTBEAT_URL:
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_loop(VAULT_MCP_HEARTBEAT_URL, VAULT_MCP_HEARTBEAT_INTERVAL)
+        )
+        logger.info("Heartbeat enabled (interval: %ds)", VAULT_MCP_HEARTBEAT_INTERVAL)
 
+    try:
+        yield {"frontmatter_index": frontmatter_index}
+    finally:
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+
+
+# Build allowed_hosts: always include loopback, add any env-configured extras.
+_allowed_hosts = [
+    "127.0.0.1:*",
+    "localhost:*",
+    "[::1]:*",
+    *VAULT_MCP_ALLOWED_HOSTS,
+]
 
 # Create the MCP server
 mcp = FastMCP(
     "obsidian_web_mcp",
-    stateless_http=True,
+    stateless_http=False,
     json_response=True,
+    streamable_http_path="/",
     lifespan=lifespan,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=[
-            "127.0.0.1:*",
-            "localhost:*",
-            "[::1]:*",
-            # Add your tunnel hostname here, e.g.:
-            # "vault-mcp.example.com",
-        ],
+        allowed_hosts=_allowed_hosts,
     ),
 )
 
@@ -54,12 +89,19 @@ mcp = FastMCP(
 # --- Register all tools ---
 
 from .tools.read import vault_read as _vault_read, vault_batch_read as _vault_batch_read
-from .tools.write import vault_write as _vault_write, vault_batch_frontmatter_update as _vault_batch_frontmatter_update
+from .tools.write import (
+    vault_write as _vault_write,
+    vault_patch as _vault_patch,
+    vault_append as _vault_append,
+    vault_batch_frontmatter_update as _vault_batch_frontmatter_update,
+)
 from .tools.search import vault_search as _vault_search, vault_search_frontmatter as _vault_search_frontmatter
 from .tools.manage import vault_list as _vault_list, vault_move as _vault_move, vault_delete as _vault_delete
 from .models import (
     VaultReadInput,
     VaultWriteInput,
+    VaultPatchInput,
+    VaultAppendInput,
     VaultBatchReadInput,
     VaultBatchFrontmatterUpdateInput,
     VaultSearchInput,
@@ -112,6 +154,28 @@ def vault_batch_frontmatter_update(updates: list[dict]) -> str:
     """Batch update frontmatter fields."""
     inp = VaultBatchFrontmatterUpdateInput(updates=updates)
     return _vault_batch_frontmatter_update(inp.updates)
+
+
+@mcp.tool(
+    name="vault_patch",
+    description="Replace a unique text occurrence in a vault file. The old_text must appear exactly once. Use this instead of vault_write when editing existing files — only sends the changed portion over the wire.",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def vault_patch(path: str, old_text: str, new_text: str) -> str:
+    """Find and replace a unique string in a file."""
+    inp = VaultPatchInput(path=path, old_text=old_text, new_text=new_text)
+    return _vault_patch(inp.path, inp.old_text, inp.new_text)
+
+
+@mcp.tool(
+    name="vault_append",
+    description="Append content to the end of a vault file. Useful for adding entries to logs, notes, or lists without reading the full file first.",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+)
+def vault_append(path: str, content: str, create_if_missing: bool = False) -> str:
+    """Append content to a file."""
+    inp = VaultAppendInput(path=path, content=content, create_if_missing=create_if_missing)
+    return _vault_append(inp.path, inp.content, inp.create_if_missing)
 
 
 @mcp.tool(
@@ -202,12 +266,33 @@ def main():
     if not VAULT_MCP_TOKEN:
         logger.warning("VAULT_MCP_TOKEN is not set -- auth will reject all requests")
 
+    # Start the frontmatter index once for the process lifetime. The watcher
+    # thread is a daemon and will terminate when the process exits.
+    import atexit
+
+    logger.info(f"Starting vault MCP server. Vault: {VAULT_PATH}")
+    frontmatter_index.start()
+    logger.info(f"Frontmatter index built: {frontmatter_index.file_count} files indexed")
+    atexit.register(frontmatter_index.stop)
+
     # Build the Starlette app with auth middleware and OAuth endpoints
     try:
+        from starlette.responses import Response
+        from starlette.routing import Route
+
         from .auth import BearerAuthMiddleware
         from .oauth import oauth_routes
 
         app = mcp.streamable_http_app()
+
+        # MCP spec 2025-06-18 probe: HEAD/GET / must return the protocol version.
+        async def mcp_root_probe(request):
+            return Response(
+                status_code=200,
+                headers={"MCP-Protocol-Version": "2025-06-18"},
+            )
+
+        app.routes.insert(0, Route("/", mcp_root_probe, methods=["GET", "HEAD"]))
 
         # Mount OAuth routes (these are excluded from bearer auth via the middleware)
         for route in oauth_routes:

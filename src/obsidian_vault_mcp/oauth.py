@@ -15,9 +15,12 @@ client credentials + PKCE + the bearer token on every MCP request.
 
 import hashlib
 import hmac
+import json
 import logging
+import os
 import secrets
 import time
+from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 from starlette.requests import Request
@@ -32,6 +35,44 @@ logger = logging.getLogger(__name__)
 # Maps code -> {client_id, redirect_uri, code_challenge, code_challenge_method, expires_at}
 _auth_codes: dict[str, dict] = {}
 
+# Persistent store for dynamically registered OAuth clients.
+# Without this, every server restart would invalidate claude.ai's stored client_id
+# and force the user to re-connect the integration.
+_CLIENTS_FILE = Path(__file__).resolve().parents[2] / ".oauth_clients.json"
+_registered_clients: dict[str, dict] = {}
+
+
+def _load_clients() -> None:
+    global _registered_clients
+    if not _CLIENTS_FILE.exists():
+        _registered_clients = {}
+        return
+    try:
+        with _CLIENTS_FILE.open("r") as f:
+            _registered_clients = json.load(f)
+        logger.info(f"Loaded {len(_registered_clients)} registered OAuth client(s) from disk")
+    except Exception as e:
+        logger.error(f"Failed to load OAuth clients from {_CLIENTS_FILE}: {e}")
+        _registered_clients = {}
+
+
+def _save_clients() -> None:
+    try:
+        _CLIENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _CLIENTS_FILE.with_suffix(_CLIENTS_FILE.suffix + ".tmp")
+        with tmp.open("w") as f:
+            json.dump(_registered_clients, f, indent=2)
+        os.replace(tmp, _CLIENTS_FILE)
+        try:
+            os.chmod(_CLIENTS_FILE, 0o600)
+        except OSError:
+            pass
+    except Exception as e:
+        logger.error(f"Failed to save OAuth clients to {_CLIENTS_FILE}: {e}")
+
+
+_load_clients()
+
 # Clean up expired codes periodically
 def _cleanup_codes():
     now = time.time()
@@ -40,9 +81,44 @@ def _cleanup_codes():
         del _auth_codes[k]
 
 
+def _public_base_url(request: Request) -> str:
+    """Return externally reachable base URL for OAuth metadata documents.
+
+    Tiered fallback for deployments behind proxies/tunnels:
+    1. VAULT_PUBLIC_BASE_URL env override (explicit)
+    2. X-Forwarded-Proto + X-Forwarded-Host (standard reverse proxies)
+    3. CF-Visitor header (Cloudflare Tunnel, JSON-encoded scheme)
+    4. Upgrade to https if request is http and Host isn't loopback
+    """
+    if config.VAULT_PUBLIC_BASE_URL:
+        return config.VAULT_PUBLIC_BASE_URL
+
+    host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+    if not host:
+        host = request.headers.get("host", "").strip()
+
+    proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    if proto and host:
+        return f"{proto}://{host}"
+
+    cf_visitor = request.headers.get("cf-visitor", "")
+    if cf_visitor and host:
+        try:
+            scheme = json.loads(cf_visitor).get("scheme", "").strip()
+        except json.JSONDecodeError:
+            scheme = ""
+        if scheme:
+            return f"{scheme}://{host}"
+
+    base_url = str(request.base_url).rstrip("/")
+    if base_url.startswith("http://") and host and host not in {"127.0.0.1", "localhost", "[::1]"}:
+        return f"https://{host}"
+    return base_url
+
+
 async def oauth_metadata(request: Request) -> JSONResponse:
     """RFC 8414 OAuth authorization server metadata."""
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request)
     return JSONResponse({
         "issuer": base_url,
         "authorization_endpoint": f"{base_url}/oauth/authorize",
@@ -52,6 +128,22 @@ async def oauth_metadata(request: Request) -> JSONResponse:
         "response_types_supported": ["code"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
+    })
+
+
+async def protected_resource_metadata(request: Request) -> JSONResponse:
+    """RFC 9728 OAuth protected resource metadata.
+
+    MCP clients (including Claude Code) fetch this first to learn which
+    authorization server issues tokens for this resource. Without it, the
+    client can't start the OAuth flow and reports "Failed to connect"
+    instead of "Needs authentication".
+    """
+    base_url = _public_base_url(request)
+    return JSONResponse({
+        "resource": base_url,
+        "authorization_servers": [base_url],
+        "bearer_methods_supported": ["header"],
     })
 
 
@@ -163,22 +255,30 @@ async def _handle_authorization_code(form, client_id: str, client_secret: str) -
 
 async def _handle_client_credentials(client_id: str, client_secret: str) -> JSONResponse:
     """Exchange client credentials for a bearer token."""
-    if not config.VAULT_OAUTH_CLIENT_SECRET:
-        return JSONResponse({"error": "server_error"}, status_code=500)
+    # Check dynamically registered clients first
+    client = _registered_clients.get(client_id)
+    if client and hmac.compare_digest(client_secret, client["client_secret"]):
+        logger.info(f"OAuth token issued via client_credentials (registered {client_id})")
+        return JSONResponse({
+            "access_token": config.VAULT_MCP_TOKEN,
+            "token_type": "bearer",
+            "expires_in": 86400,
+        })
 
-    id_match = hmac.compare_digest(client_id, config.VAULT_OAUTH_CLIENT_ID)
-    secret_match = hmac.compare_digest(client_secret, config.VAULT_OAUTH_CLIENT_SECRET)
+    # Fallback to the env-var-configured client (README flow)
+    if config.VAULT_OAUTH_CLIENT_SECRET:
+        id_match = hmac.compare_digest(client_id, config.VAULT_OAUTH_CLIENT_ID)
+        secret_match = hmac.compare_digest(client_secret, config.VAULT_OAUTH_CLIENT_SECRET)
+        if id_match and secret_match:
+            logger.info("OAuth token issued via client_credentials (env-configured)")
+            return JSONResponse({
+                "access_token": config.VAULT_MCP_TOKEN,
+                "token_type": "bearer",
+                "expires_in": 86400,
+            })
 
-    if not (id_match and secret_match):
-        logger.warning(f"OAuth client_credentials failed (client_id={client_id!r})")
-        return JSONResponse({"error": "invalid_client"}, status_code=401)
-
-    logger.info("OAuth token issued via client_credentials grant")
-    return JSONResponse({
-        "access_token": config.VAULT_MCP_TOKEN,
-        "token_type": "bearer",
-        "expires_in": 86400,
-    })
+    logger.warning(f"OAuth client_credentials failed (client_id={client_id!r})")
+    return JSONResponse({"error": "invalid_client"}, status_code=401)
 
 
 async def oauth_register(request: Request) -> JSONResponse:
@@ -192,16 +292,28 @@ async def oauth_register(request: Request) -> JSONResponse:
     except Exception:
         body = {}
 
-    # Generate a unique client_id for this registration
+    # Generate a unique client_id and per-client secret for this registration
     client_id = f"vault-mcp-{secrets.token_hex(8)}"
+    client_secret = secrets.token_hex(32)
+    client_name = body.get("client_name", "Obsidian Vault MCP Client")
+    redirect_uris = body.get("redirect_uris", [])
+
+    _registered_clients[client_id] = {
+        "client_secret": client_secret,
+        "client_name": client_name,
+        "redirect_uris": redirect_uris,
+        "created_at": time.time(),
+    }
+    _save_clients()
+    logger.info(f"Registered OAuth client {client_id} ({client_name})")
 
     return JSONResponse({
         "client_id": client_id,
-        "client_secret": config.VAULT_OAUTH_CLIENT_SECRET,
-        "client_name": body.get("client_name", "Obsidian Vault MCP Client"),
+        "client_secret": client_secret,
+        "client_name": client_name,
         "grant_types": ["authorization_code"],
         "response_types": ["code"],
-        "redirect_uris": body.get("redirect_uris", []),
+        "redirect_uris": redirect_uris,
         "token_endpoint_auth_method": "client_secret_post",
     }, status_code=201)
 
@@ -209,7 +321,9 @@ async def oauth_register(request: Request) -> JSONResponse:
 # Starlette routes to mount on the app
 oauth_routes = [
     Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
+    Route("/.well-known/oauth-protected-resource", protected_resource_metadata, methods=["GET"]),
     Route("/oauth/authorize", oauth_authorize, methods=["GET"]),
+    Route("/authorize", oauth_authorize, methods=["GET"]),
     Route("/oauth/token", oauth_token, methods=["POST"]),
     Route("/oauth/register", oauth_register, methods=["POST"]),
 ]
