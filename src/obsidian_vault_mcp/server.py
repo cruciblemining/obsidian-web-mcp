@@ -280,45 +280,43 @@ def main():
         ).start()
         logger.info("Heartbeat enabled (interval: %ds)", VAULT_MCP_HEARTBEAT_INTERVAL)
 
-    # Build the Starlette app with auth middleware and OAuth endpoints
-    try:
-        from starlette.responses import Response
-        from starlette.routing import Route
+    # Build the Starlette app with auth middleware and OAuth endpoints.
+    # If any of this fails, crash the process — do NOT fall back to an
+    # unauthenticated server. This server is exposed to the public internet
+    # via Cloudflare Tunnel; failing open is catastrophic.
+    from starlette.responses import Response
+    from starlette.routing import Route
 
-        from .auth import BearerAuthMiddleware
-        from .oauth import oauth_routes
+    from .auth import BearerAuthMiddleware
+    from .oauth import oauth_routes
 
-        app = mcp.streamable_http_app()
+    app = mcp.streamable_http_app()
 
-        # MCP spec 2025-06-18 probe: HEAD/GET / must return the protocol version.
-        async def mcp_root_probe(request):
-            return Response(
-                status_code=200,
-                headers={"MCP-Protocol-Version": "2025-06-18"},
-            )
-
-        app.routes.insert(0, Route("/", mcp_root_probe, methods=["GET", "HEAD"]))
-
-        # Mount OAuth routes (these are excluded from bearer auth via the middleware)
-        for route in oauth_routes:
-            app.routes.insert(0, route)
-
-        app.add_middleware(BearerAuthMiddleware)
-        logger.info(f"Starting server on port {VAULT_MCP_PORT} with bearer auth + OAuth")
-
-        import uvicorn
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=VAULT_MCP_PORT,
-            log_level="info",
-            proxy_headers=True,
-            forwarded_allow_ips="*",
+    # MCP spec 2025-06-18 probe: HEAD/GET / must return the protocol version.
+    async def mcp_root_probe(request):
+        return Response(
+            status_code=200,
+            headers={"MCP-Protocol-Version": "2025-06-18"},
         )
-    except Exception as e:
-        logger.warning(f"Could not build app ({e}), falling back to mcp.run()")
-        logger.warning("Auth will NOT be enforced in this mode")
-        mcp.run(transport="streamable-http", port=VAULT_MCP_PORT)
+
+    app.routes.insert(0, Route("/", mcp_root_probe, methods=["GET", "HEAD"]))
+
+    # Mount OAuth routes (these are excluded from bearer auth via the middleware)
+    for route in oauth_routes:
+        app.routes.insert(0, route)
+
+    app.add_middleware(BearerAuthMiddleware)
+    logger.info(f"Starting server on port {VAULT_MCP_PORT} with bearer auth + OAuth")
+
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=VAULT_MCP_PORT,
+        log_level="info",
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
 
 
 if __name__ == "__main__":
