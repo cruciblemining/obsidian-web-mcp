@@ -73,6 +73,41 @@ def _save_clients() -> None:
 
 _load_clients()
 
+
+def _is_known_client_id(client_id: str) -> bool:
+    """Return True if client_id matches a dynamically registered client or
+    the env-configured client. Used at /authorize, where no secret is
+    presented — just verifies the id is one we've seen before.
+    """
+    if not client_id:
+        return False
+    if client_id in _registered_clients:
+        return True
+    if config.VAULT_OAUTH_CLIENT_SECRET and hmac.compare_digest(
+        client_id, config.VAULT_OAUTH_CLIENT_ID
+    ):
+        return True
+    return False
+
+
+def _validate_client_credentials(client_id: str, client_secret: str) -> bool:
+    """Verify client_id + client_secret. Checks dynamically registered
+    clients first, then falls back to the env-configured client. Returns
+    True only if both id and secret match a known entry (constant-time).
+    """
+    if not client_id or not client_secret:
+        return False
+    registered = _registered_clients.get(client_id)
+    if registered and hmac.compare_digest(client_secret, registered["client_secret"]):
+        return True
+    if config.VAULT_OAUTH_CLIENT_SECRET:
+        id_match = hmac.compare_digest(client_id, config.VAULT_OAUTH_CLIENT_ID)
+        secret_match = hmac.compare_digest(client_secret, config.VAULT_OAUTH_CLIENT_SECRET)
+        if id_match and secret_match:
+            return True
+    return False
+
+
 # Clean up expired codes periodically
 def _cleanup_codes():
     now = time.time()
@@ -167,6 +202,18 @@ async def oauth_authorize(request: Request):
     if not redirect_uri:
         return JSONResponse({"error": "invalid_request", "error_description": "redirect_uri required"}, status_code=400)
 
+    # Reject unknown client_id. Without this, any caller reaching the tunnel
+    # could initiate the OAuth flow and receive a valid auth code.
+    if not _is_known_client_id(client_id):
+        logger.warning(f"OAuth /authorize rejected unknown client_id={client_id!r}")
+        return JSONResponse({"error": "invalid_client"}, status_code=401)
+
+    # PKCE is mandatory for all authorize requests (S256 only).
+    if not code_challenge:
+        return JSONResponse({"error": "invalid_request", "error_description": "code_challenge required"}, status_code=400)
+    if code_challenge_method != "S256":
+        return JSONResponse({"error": "invalid_request", "error_description": "only S256 code_challenge_method supported"}, status_code=400)
+
     # Generate authorization code
     _cleanup_codes()
     code = secrets.token_urlsafe(32)
@@ -221,6 +268,12 @@ async def _handle_authorization_code(form, client_id: str, client_secret: str) -
     redirect_uri = form.get("redirect_uri", "")
     code_verifier = form.get("code_verifier", "")
 
+    # Verify client credentials. Without this, any caller reaching /token
+    # with a valid auth code could redeem it for a bearer token.
+    if not _validate_client_credentials(client_id, client_secret):
+        logger.warning(f"OAuth /token authorization_code rejected client auth (client_id={client_id!r})")
+        return JSONResponse({"error": "invalid_client"}, status_code=401)
+
     _cleanup_codes()
 
     if code not in _auth_codes:
@@ -232,18 +285,18 @@ async def _handle_authorization_code(form, client_id: str, client_secret: str) -
     if redirect_uri and code_data["redirect_uri"] and redirect_uri != code_data["redirect_uri"]:
         return JSONResponse({"error": "invalid_grant", "error_description": "redirect_uri mismatch"}, status_code=400)
 
-    # Verify PKCE code_challenge if one was provided during authorization
-    if code_data["code_challenge"]:
-        if not code_verifier:
-            return JSONResponse({"error": "invalid_grant", "error_description": "code_verifier required"}, status_code=400)
+    # PKCE is mandatory — /authorize rejects requests without code_challenge,
+    # so code_data["code_challenge"] will always be set here.
+    if not code_verifier:
+        return JSONResponse({"error": "invalid_grant", "error_description": "code_verifier required"}, status_code=400)
 
-        # S256: BASE64URL(SHA256(code_verifier)) must match code_challenge
-        import base64
-        digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
-        computed_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    # S256: BASE64URL(SHA256(code_verifier)) must match code_challenge
+    import base64
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    computed_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
-        if not hmac.compare_digest(computed_challenge, code_data["code_challenge"]):
-            return JSONResponse({"error": "invalid_grant", "error_description": "PKCE verification failed"}, status_code=400)
+    if not hmac.compare_digest(computed_challenge, code_data["code_challenge"]):
+        return JSONResponse({"error": "invalid_grant", "error_description": "PKCE verification failed"}, status_code=400)
 
     logger.info("OAuth token issued via authorization_code grant")
     return JSONResponse({
@@ -255,30 +308,16 @@ async def _handle_authorization_code(form, client_id: str, client_secret: str) -
 
 async def _handle_client_credentials(client_id: str, client_secret: str) -> JSONResponse:
     """Exchange client credentials for a bearer token."""
-    # Check dynamically registered clients first
-    client = _registered_clients.get(client_id)
-    if client and hmac.compare_digest(client_secret, client["client_secret"]):
-        logger.info(f"OAuth token issued via client_credentials (registered {client_id})")
-        return JSONResponse({
-            "access_token": config.VAULT_MCP_TOKEN,
-            "token_type": "bearer",
-            "expires_in": 86400,
-        })
+    if not _validate_client_credentials(client_id, client_secret):
+        logger.warning(f"OAuth client_credentials failed (client_id={client_id!r})")
+        return JSONResponse({"error": "invalid_client"}, status_code=401)
 
-    # Fallback to the env-var-configured client (README flow)
-    if config.VAULT_OAUTH_CLIENT_SECRET:
-        id_match = hmac.compare_digest(client_id, config.VAULT_OAUTH_CLIENT_ID)
-        secret_match = hmac.compare_digest(client_secret, config.VAULT_OAUTH_CLIENT_SECRET)
-        if id_match and secret_match:
-            logger.info("OAuth token issued via client_credentials (env-configured)")
-            return JSONResponse({
-                "access_token": config.VAULT_MCP_TOKEN,
-                "token_type": "bearer",
-                "expires_in": 86400,
-            })
-
-    logger.warning(f"OAuth client_credentials failed (client_id={client_id!r})")
-    return JSONResponse({"error": "invalid_client"}, status_code=401)
+    logger.info(f"OAuth token issued via client_credentials (client_id={client_id})")
+    return JSONResponse({
+        "access_token": config.VAULT_MCP_TOKEN,
+        "token_type": "bearer",
+        "expires_in": 86400,
+    })
 
 
 async def oauth_register(request: Request) -> JSONResponse:

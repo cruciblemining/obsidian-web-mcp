@@ -33,7 +33,7 @@ Starlette app wrapping a FastMCP instance. Understanding how the layers compose 
 4. `BearerAuthMiddleware` (`auth.py`) wraps the whole app. Its exemption list (`_AUTH_EXEMPT_PATHS` / `_AUTH_EXEMPT_METHOD_PATHS`) covers OAuth endpoints and the spec probe; everything else requires `Authorization: Bearer $VAULT_MCP_TOKEN` validated via `hmac.compare_digest`.
 5. Each `@mcp.tool` in `server.py` is a thin shim: construct a Pydantic input from `models.py`, delegate to the implementation in `tools/{read,write,search,manage}.py`.
 
-**Fallback trap**: if custom app assembly raises, `main()` falls back to `mcp.run()` which runs **without auth**. Any change that might break app assembly needs testing against this path; a silent fallback to an unauthenticated server is a real risk.
+**Fail-loud startup**: if custom app assembly raises, `main()` lets the exception propagate and the process exits. There is no unauthenticated fallback — an earlier version had a `try/except` that silently dropped to `mcp.run()` without auth, which was catastrophic on a public tunnel. Do not reintroduce it; if assembly can fail, fix the cause.
 
 **OAuth vs bearer split**: OAuth endpoints (`/authorize`, `/oauth/token`, `/oauth/register`, `/.well-known/*`) are how Claude negotiates the bearer token in the first place — chicken-and-egg, so they're exempt from bearer auth. Every actual tool call after that is bearer-authenticated. These are two separate auth systems that share no state beyond the eventual token.
 
