@@ -4,9 +4,10 @@ Exposes read/write access to an Obsidian vault over Streamable HTTP.
 Designed to run behind Cloudflare Tunnel for secure remote access.
 """
 
-import asyncio
 import logging
 import sys
+import threading
+import time
 import urllib.request
 from contextlib import asynccontextmanager
 
@@ -31,39 +32,32 @@ logger = logging.getLogger(__name__)
 frontmatter_index = FrontmatterIndex()
 
 
-async def _heartbeat_loop(url: str, interval: int) -> None:
-    """Send periodic HTTP GET heartbeats to a push-style health check endpoint."""
-    def _send() -> int:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            return resp.status
+def _heartbeat_forever(url: str, interval: int) -> None:
+    """Blocking loop — send periodic HTTP GET heartbeats to a push-style
+    health check endpoint. Intended to run in a daemon thread for the
+    lifetime of the process.
 
+    Lives outside the MCP session lifespan because in stateless_http mode
+    that lifespan enters/exits per request, which would cancel the task
+    before its first sleep and prevent any heartbeat from ever firing.
+    """
     while True:
         try:
-            status = await asyncio.to_thread(_send)
-            logger.debug("Heartbeat sent: HTTP %s", status)
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                logger.debug("Heartbeat sent: HTTP %s", resp.status)
         except Exception as exc:
             logger.debug("Heartbeat failed: %s", exc)
-        await asyncio.sleep(interval)
+        time.sleep(interval)
 
 
 @asynccontextmanager
 async def lifespan(server):
-    """Per-session MCP lifespan. The frontmatter index has a process-wide
-    lifecycle (started in main(), stopped at process exit) to avoid
-    double-scheduling the vault watcher when multiple sessions initialize.
+    """Per-session MCP lifespan. Kept minimal because process-lifetime
+    resources (frontmatter index, heartbeat thread) are started in main()
+    to avoid double-scheduling across sessions — especially in
+    stateless_http mode where this runs per request.
     """
-    heartbeat_task = None
-    if VAULT_MCP_HEARTBEAT_URL:
-        heartbeat_task = asyncio.create_task(
-            _heartbeat_loop(VAULT_MCP_HEARTBEAT_URL, VAULT_MCP_HEARTBEAT_INTERVAL)
-        )
-        logger.info("Heartbeat enabled (interval: %ds)", VAULT_MCP_HEARTBEAT_INTERVAL)
-
-    try:
-        yield {"frontmatter_index": frontmatter_index}
-    finally:
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
+    yield {"frontmatter_index": frontmatter_index}
 
 
 # Build allowed_hosts: always include loopback, add any env-configured extras.
@@ -276,6 +270,15 @@ def main():
     frontmatter_index.start()
     logger.info(f"Frontmatter index built: {frontmatter_index.file_count} files indexed")
     atexit.register(frontmatter_index.stop)
+
+    if VAULT_MCP_HEARTBEAT_URL:
+        threading.Thread(
+            target=_heartbeat_forever,
+            args=(VAULT_MCP_HEARTBEAT_URL, VAULT_MCP_HEARTBEAT_INTERVAL),
+            daemon=True,
+            name="heartbeat",
+        ).start()
+        logger.info("Heartbeat enabled (interval: %ds)", VAULT_MCP_HEARTBEAT_INTERVAL)
 
     # Build the Starlette app with auth middleware and OAuth endpoints
     try:
