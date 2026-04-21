@@ -253,7 +253,7 @@ This fork integrates work from the following contributors (listed alphabetically
 - **[Chris (casmokey)](https://github.com/casmokey)** — OAuth discovery metadata advertisement for MCP clients.
 - **[jdubdevs](https://github.com/jdubdevs)** — JSON serialization fix for YAML `date` objects in read/search tools.
 - **[Jason Zhu](https://github.com/jasonz-ncc42)** — `vault_patch` and `vault_append` tools for efficient file editing.
-- **Marcelo Toledo** — MCP spec 2025-06-18 compliance, OAuth client persistence, session-lifecycle and observer-lifecycle fixes.
+- **[Marcelo Toledo](https://github.com/marcelotoledo)** — MCP spec 2025-06-18 compliance, OAuth client persistence, session-lifecycle and observer-lifecycle fixes.
 - **[Michael Leitner](https://github.com/mleitnercom)** — public-URL detection behind TLS-terminating tunnels and reverse proxies, so OAuth discovery metadata advertises `https://` endpoints correctly.
 
 Contributions were adopted in good faith based on public commit history; contributors did not necessarily coordinate on this consolidation. If you are listed here and prefer not to be, please open an issue and we will remove the attribution.
