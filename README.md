@@ -251,6 +251,7 @@ Original project by **[Jim Prosser](https://github.com/jimprosser)** — [jimpro
 This fork integrates work from the following contributors (listed alphabetically). Each retains authorship on their original commits in the history:
 
 - **[Chris (casmokey)](https://github.com/casmokey)** — OAuth discovery metadata advertisement for MCP clients.
+- **[David Ronen (dr-growth)](https://github.com/dr-growth)** — OAuth client-authentication hardening: mandatory PKCE, `client_id` validation at `/authorize`, `client_id` + `client_secret` verification on the authorization_code grant, and removal of the silent auth-bypass fallback at startup.
 - **[jdubdevs](https://github.com/jdubdevs)** — JSON serialization fix for YAML `date` objects in read/search tools.
 - **[Jason Zhu](https://github.com/jasonz-ncc42)** — `vault_patch` and `vault_append` tools for efficient file editing.
 - **Marcelo Toledo** — MCP spec 2025-06-18 compliance, OAuth client persistence, session-lifecycle and observer-lifecycle fixes.
